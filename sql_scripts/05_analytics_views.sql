@@ -1,0 +1,131 @@
+-- ============================================================
+-- SAP HANA Inventory Management - Analytics Views
+-- ============================================================
+
+-- ============================================================
+-- VIEW 1: Low Stock Alert Dashboard
+-- ============================================================
+CREATE VIEW INVENTORY_MGMT.V_LOW_STOCK_ALERT AS
+SELECT P.PRODUCT_ID,
+       P.PRODUCT_NAME,
+       P.CATEGORY,
+       I.STOCK_QTY,
+       P.REORDER_LEVEL,
+       (P.REORDER_LEVEL - I.STOCK_QTY) AS SHORTAGE_QTY,
+       I.WAREHOUSE_LOCATION,
+       CASE 
+           WHEN I.STOCK_QTY = 0 THEN 'OUT_OF_STOCK'
+           WHEN I.STOCK_QTY < P.REORDER_LEVEL THEN 'CRITICAL'
+           WHEN I.STOCK_QTY <= (P.REORDER_LEVEL * 1.2) THEN 'WARNING'
+           ELSE 'NORMAL'
+       END AS ALERT_STATUS
+FROM INVENTORY_MGMT.PRODUCT P
+JOIN INVENTORY_MGMT.INVENTORY I ON P.PRODUCT_ID = I.PRODUCT_ID
+WHERE I.STOCK_QTY <= (P.REORDER_LEVEL * 1.2)
+ORDER BY ALERT_STATUS DESC, SHORTAGE_QTY DESC;
+
+-- ============================================================
+-- VIEW 2: Inventory Valuation Summary
+-- ============================================================
+CREATE VIEW INVENTORY_MGMT.V_INVENTORY_VALUATION AS
+SELECT P.CATEGORY,
+       P.PRODUCT_ID,
+       P.PRODUCT_NAME,
+       I.STOCK_QTY,
+       P.UNIT_PRICE,
+       (I.STOCK_QTY * P.UNIT_PRICE) AS STOCK_VALUE,
+       I.LAST_UPDATED,
+       I.WAREHOUSE_LOCATION
+FROM INVENTORY_MGMT.PRODUCT P
+JOIN INVENTORY_MGMT.INVENTORY I ON P.PRODUCT_ID = I.PRODUCT_ID
+ORDER BY STOCK_VALUE DESC;
+
+-- ============================================================
+-- VIEW 3: Category-wise Inventory Summary
+-- ============================================================
+CREATE VIEW INVENTORY_MGMT.V_CATEGORY_SUMMARY AS
+SELECT P.CATEGORY,
+       COUNT(*) AS PRODUCT_COUNT,
+       SUM(I.STOCK_QTY) AS TOTAL_UNITS,
+       SUM(I.STOCK_QTY * P.UNIT_PRICE) AS TOTAL_VALUE,
+       AVG(P.UNIT_PRICE) AS AVG_UNIT_PRICE,
+       MIN(I.STOCK_QTY) AS MIN_STOCK,
+       MAX(I.STOCK_QTY) AS MAX_STOCK
+FROM INVENTORY_MGMT.PRODUCT P
+JOIN INVENTORY_MGMT.INVENTORY I ON P.PRODUCT_ID = I.PRODUCT_ID
+GROUP BY P.CATEGORY
+ORDER BY TOTAL_VALUE DESC;
+
+-- ============================================================
+-- VIEW 4: Sales Performance Analysis
+-- ============================================================
+CREATE VIEW INVENTORY_MGMT.V_SALES_PERFORMANCE AS
+SELECT P.PRODUCT_ID,
+       P.PRODUCT_NAME,
+       P.CATEGORY,
+       COUNT(S.SALE_ID) AS TOTAL_TRANSACTIONS,
+       SUM(S.QUANTITY) AS TOTAL_QUANTITY_SOLD,
+       SUM(S.SALE_AMOUNT) AS TOTAL_REVENUE,
+       AVG(S.QUANTITY) AS AVG_QTY_PER_SALE,
+       AVG(S.SALE_AMOUNT) AS AVG_SALE_AMOUNT,
+       MAX(S.SALE_DATE) AS LAST_SALE_DATE
+FROM INVENTORY_MGMT.PRODUCT P
+LEFT JOIN INVENTORY_MGMT.SALES S ON P.PRODUCT_ID = S.PRODUCT_ID
+GROUP BY P.PRODUCT_ID, P.PRODUCT_NAME, P.CATEGORY
+ORDER BY TOTAL_REVENUE DESC;
+
+-- ============================================================
+-- VIEW 5: Warehouse Inventory Distribution
+-- ============================================================
+CREATE VIEW INVENTORY_MGMT.V_WAREHOUSE_DISTRIBUTION AS
+SELECT I.WAREHOUSE_LOCATION,
+       COUNT(DISTINCT P.PRODUCT_ID) AS PRODUCT_COUNT,
+       SUM(I.STOCK_QTY) AS TOTAL_STOCK,
+       SUM(I.STOCK_QTY * P.UNIT_PRICE) AS WAREHOUSE_VALUE,
+       AVG(I.STOCK_QTY) AS AVG_STOCK_PER_PRODUCT
+FROM INVENTORY_MGMT.INVENTORY I
+JOIN INVENTORY_MGMT.PRODUCT P ON I.PRODUCT_ID = P.PRODUCT_ID
+GROUP BY I.WAREHOUSE_LOCATION
+ORDER BY WAREHOUSE_VALUE DESC;
+
+-- ============================================================
+-- VIEW 6: Inventory Aging Report
+-- ============================================================
+CREATE VIEW INVENTORY_MGMT.V_INVENTORY_AGING AS
+SELECT P.PRODUCT_ID,
+       P.PRODUCT_NAME,
+       I.STOCK_QTY,
+       I.LAST_UPDATED,
+       DATEDIFF(day, I.LAST_UPDATED, CURRENT_DATE) AS DAYS_SINCE_UPDATE,
+       CASE 
+           WHEN DATEDIFF(day, I.LAST_UPDATED, CURRENT_DATE) > 90 THEN 'OLD'
+           WHEN DATEDIFF(day, I.LAST_UPDATED, CURRENT_DATE) BETWEEN 30 AND 90 THEN 'MEDIUM'
+           ELSE 'FRESH'
+       END AS AGING_STATUS
+FROM INVENTORY_MGMT.PRODUCT P
+JOIN INVENTORY_MGMT.INVENTORY I ON P.PRODUCT_ID = I.PRODUCT_ID
+ORDER BY DAYS_SINCE_UPDATE DESC;
+
+-- ============================================================
+-- VIEW 7: Fast Moving Products Dashboard
+-- ============================================================
+CREATE VIEW INVENTORY_MGMT.V_FAST_MOVING_PRODUCTS AS
+SELECT P.PRODUCT_ID,
+       P.PRODUCT_NAME,
+       P.CATEGORY,
+       SUM(S.QUANTITY) AS UNITS_SOLD,
+       COUNT(S.SALE_ID) AS SALE_COUNT,
+       SUM(S.SALE_AMOUNT) AS TOTAL_REVENUE,
+       I.STOCK_QTY AS CURRENT_STOCK,
+       CASE 
+           WHEN SUM(S.QUANTITY) > 0 AND I.STOCK_QTY > 0 THEN SUM(S.QUANTITY) / I.STOCK_QTY
+           ELSE 0
+       END AS TURNOVER_RATIO
+FROM INVENTORY_MGMT.PRODUCT P
+LEFT JOIN INVENTORY_MGMT.SALES S ON P.PRODUCT_ID = S.PRODUCT_ID
+LEFT JOIN INVENTORY_MGMT.INVENTORY I ON P.PRODUCT_ID = I.PRODUCT_ID
+WHERE S.SALE_DATE >= ADD_MONTHS(CURRENT_DATE, -1)
+GROUP BY P.PRODUCT_ID, P.PRODUCT_NAME, P.CATEGORY, I.STOCK_QTY
+ORDER BY TOTAL_REVENUE DESC;
+
+COMMIT;
